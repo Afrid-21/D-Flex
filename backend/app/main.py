@@ -38,10 +38,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Enable CORS for frontend development
+# Allow the deployed frontend and local development servers to call the API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://d-flex-eight.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
