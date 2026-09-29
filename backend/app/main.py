@@ -15,6 +15,11 @@ sim_engine = SimulationEngine()
 active_websockets: List[WebSocket] = []
 last_obstacle_signature: tuple[tuple[int, int, str], ...] | None = None
 
+def _apply_network_fault_params(params: dict):
+    packet_loss_pct = params.get("packet_loss_rate_pct", params.get("packet_loss_pct", 0.0))
+    latency_ms = params.get("simulated_latency_ms", params.get("latency_ms", 0.0))
+    sim_engine.set_network_faults(float(packet_loss_pct), float(latency_ms))
+
 def broadcast_state(state: SimulationState):
     """Callback invoked by sim_engine on state change/tick to push to all WebSockets."""
     global last_obstacle_signature
@@ -147,9 +152,7 @@ async def handle_control(command: ControlCommand):
     elif action == "trigger_edge_ai_scenario_c":
         sim_engine.trigger_edge_ai_scenario_c()
     elif action == "set_network_faults":
-        loss = float(params.get("packet_loss_pct", 0.0))
-        lat = float(params.get("latency_ms", 0.0))
-        sim_engine.set_network_faults(loss, lat)
+        _apply_network_fault_params(params)
     elif action == "trigger_network_scenario_a":
         sim_engine.trigger_network_scenario_a()
     elif action == "trigger_network_scenario_b":
@@ -257,9 +260,7 @@ async def simulation_websocket(websocket: WebSocket):
             elif action == "trigger_edge_ai_scenario_c":
                 sim_engine.trigger_edge_ai_scenario_c()
             elif action == "set_network_faults":
-                loss = float(params.get("packet_loss_pct", 0.0))
-                lat = float(params.get("latency_ms", 0.0))
-                sim_engine.set_network_faults(loss, lat)
+                _apply_network_fault_params(params)
             elif action == "trigger_network_scenario_a":
                 sim_engine.trigger_network_scenario_a()
             elif action == "trigger_network_scenario_b":

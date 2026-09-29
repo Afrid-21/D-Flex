@@ -79,3 +79,24 @@ def test_network_scenario_c():
     assert metrics.packet_loss_rate_pct == 50.0
     assert metrics.simulated_latency_ms == 250.0
     assert metrics.network_health == "DEGRADED"
+
+
+@pytest.mark.parametrize(
+    ("params", "expected_loss", "expected_latency"),
+    [
+        ({"packet_loss_rate_pct": 35, "simulated_latency_ms": 125}, 35, 125),
+        ({"packet_loss_pct": 45, "latency_ms": 250}, 45, 250),
+    ],
+)
+def test_network_fault_control_accepts_frontend_and_legacy_parameter_names(
+    params, expected_loss, expected_latency
+):
+    from app.main import _apply_network_fault_params, sim_engine
+
+    try:
+        _apply_network_fault_params(params)
+        metrics = sim_engine.fleet.get_network_resilience_metrics()
+        assert metrics.packet_loss_rate_pct == expected_loss
+        assert metrics.simulated_latency_ms == expected_latency
+    finally:
+        sim_engine.set_network_faults(0.0, 0.0)
