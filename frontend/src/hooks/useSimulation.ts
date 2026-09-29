@@ -196,9 +196,32 @@ export function useSimulation() {
   const start = useCallback(() => sendCommand('start'), [sendCommand]);
   const pause = useCallback(() => sendCommand('pause'), [sendCommand]);
   const reset = useCallback(() => {
-    sendCommand('reset');
-    addEvent('info', 'SYSTEM', 'Simulation clock, obstacles, and AMR fleet reset to initial state');
-  }, [sendCommand, addEvent]);
+    fetch(`${REST_URL}/control`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reset' }),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Reset request failed (${response.status})`);
+        }
+
+        const result: { success: boolean; state?: SimulationState; error?: string } = await response.json();
+        if (!result.success || !result.state) {
+          throw new Error(result.error || 'Backend did not return the reset state');
+        }
+
+        prevStateRef.current = result.state;
+        setState(result.state);
+        setError(null);
+        addEvent('success', 'SYSTEM', 'Simulation, obstacles, and fleet reset to initial state');
+      })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : 'Reset request failed';
+        setError(message);
+        addEvent('critical', 'SYSTEM', 'Simulation reset failed', message);
+      });
+  }, [addEvent]);
   const step = useCallback(() => sendCommand('step'), [sendCommand]);
   const setSpeed = useCallback((speed: number) => {
     sendCommand('set_speed', { speed });
