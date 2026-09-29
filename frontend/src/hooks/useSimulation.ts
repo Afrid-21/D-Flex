@@ -46,10 +46,13 @@ export function useSimulation() {
 
       ws.onmessage = (event) => {
         try {
-          const data: SimulationState = JSON.parse(event.data);
+          const incoming: Partial<SimulationState> = JSON.parse(event.data);
+          const previous = prevStateRef.current;
+          const data = (previous ? { ...previous, ...incoming } : incoming) as SimulationState;
+          if (!data.layout) return;
           
           // Detect state transitions for event feed
-          const prev = prevStateRef.current;
+          const prev = previous;
           if (prev) {
             if (prev.status !== data.status) {
               const sev: EventSeverity = data.status === 'running' ? 'success' : 'info';

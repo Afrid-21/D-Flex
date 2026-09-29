@@ -13,10 +13,18 @@ sim_engine = SimulationEngine()
 
 # Connected WebSocket clients
 active_websockets: List[WebSocket] = []
+last_obstacle_signature: tuple[tuple[int, int, str], ...] | None = None
 
 def broadcast_state(state: SimulationState):
     """Callback invoked by sim_engine on state change/tick to push to all WebSockets."""
-    payload = state.model_dump_json()
+    global last_obstacle_signature
+    obstacle_signature = tuple(
+        (obstacle.x, obstacle.y, obstacle.label)
+        for obstacle in state.layout.obstacles
+    )
+    layout_changed = obstacle_signature != last_obstacle_signature
+    last_obstacle_signature = obstacle_signature
+    payload = state.model_dump_json(exclude=None if layout_changed else {"layout"})
     for ws in list(active_websockets):
         try:
             asyncio.create_task(ws.send_text(payload))
