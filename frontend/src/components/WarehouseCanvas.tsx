@@ -39,6 +39,17 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const staticLayerRef = useRef<{
+    layout: WarehouseLayout;
+    width: number;
+    height: number;
+    zoomLevel: number;
+    panX: number;
+    panY: number;
+    showGrid: boolean;
+    showLabels: boolean;
+    imageData: ImageData;
+  } | null>(null);
   const [hoveredCell, setHoveredCell] = useState<CellData | null>(null);
   const [hoveredRobot, setHoveredRobot] = useState<RobotInfo | null>(null);
   const [mouseScreenPos, setMouseScreenPos] = useState<{ x: number; y: number } | null>(null);
@@ -58,8 +69,25 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
     const height = canvas.height;
     const cols = layout.width;
     const rows = layout.height;
+    const cellW = width / cols;
+    const cellH = height / rows;
+    const cachedLayer = staticLayerRef.current;
+    const canReuseStaticLayer = Boolean(
+      cachedLayer &&
+      cachedLayer.layout === layout &&
+      cachedLayer.width === width &&
+      cachedLayer.height === height &&
+      cachedLayer.zoomLevel === zoomLevel &&
+      cachedLayer.panX === panOffset.x &&
+      cachedLayer.panY === panOffset.y &&
+      cachedLayer.showGrid === showGrid &&
+      cachedLayer.showLabels === showLabels
+    );
 
-    ctx.save();
+    if (canReuseStaticLayer && cachedLayer) {
+      ctx.putImageData(cachedLayer.imageData, 0, 0);
+    } else {
+      ctx.save();
     // 1. Warehouse Perimeter / Concrete Floor Base
     ctx.fillStyle = '#f1f5f9';
     ctx.fillRect(0, 0, width, height);
@@ -68,9 +96,6 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
     ctx.translate(width / 2 + panOffset.x, height / 2 + panOffset.y);
     ctx.scale(zoomLevel, zoomLevel);
     ctx.translate(-width / 2, -height / 2);
-
-    const cellW = width / cols;
-    const cellH = height / rows;
 
     // 2. Draw Floor & Aisle Tiles
     for (let r = 0; r < rows; r++) {
@@ -329,6 +354,25 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
         ctx.fillText('BLOCKED', x + cellW / 2, y + cellH / 2);
       }
     }
+
+      ctx.restore();
+      staticLayerRef.current = {
+        layout,
+        width,
+        height,
+        zoomLevel,
+        panX: panOffset.x,
+        panY: panOffset.y,
+        showGrid,
+        showLabels,
+        imageData: ctx.getImageData(0, 0, width, height),
+      };
+    }
+
+    ctx.save();
+    ctx.translate(width / 2 + panOffset.x, height / 2 + panOffset.y);
+    ctx.scale(zoomLevel, zoomLevel);
+    ctx.translate(-width / 2, -height / 2);
 
     // 6. Draw Robot A* Path Traces (Old Invalidated Route vs New Active Route)
     robots.forEach((robot) => {
