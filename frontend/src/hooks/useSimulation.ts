@@ -329,7 +329,11 @@ export function useSimulation() {
 
   // Phase 13 Network Fault Injection & Communication Resilience Scenario Triggers
   const setNetworkFaults = useCallback((params: { packet_loss_rate_pct?: number; simulated_latency_ms?: number; isolated_nodes?: string[] }) => {
-    sendCommand('set_network_faults', params);
+    sendCommand('set_network_faults', {
+      packet_loss_pct: params.packet_loss_rate_pct,
+      latency_ms: params.simulated_latency_ms,
+      isolated_nodes: params.isolated_nodes,
+    });
     addEvent('warning', 'NETWORK CONFIG', `Network fault params updated: loss=${params.packet_loss_rate_pct ?? 0}%, latency=${params.simulated_latency_ms ?? 0}ms`);
   }, [sendCommand, addEvent]);
 
