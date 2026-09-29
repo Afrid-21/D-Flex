@@ -52,29 +52,26 @@ def test_fleet_summary_is_reported():
 def test_websocket_broadcast_only_includes_layout_when_it_changes(monkeypatch):
     from app import main
 
-    payloads = []
-
-    class RecordingSocket:
-        async def send_text(self, payload):
-            payloads.append(payload)
-
+    socket = object()
+    queue = asyncio.Queue(maxsize=1)
     engine = SimulationEngine()
-    monkeypatch.setattr(main, "active_websockets", [RecordingSocket()])
+    monkeypatch.setattr(main, "active_websockets", [socket])
+    monkeypatch.setattr(main, "websocket_state_queues", {socket: queue})
     monkeypatch.setattr(main, "last_obstacle_signature", None)
 
-    async def broadcast_updates():
-        main.broadcast_state(engine.get_state())
-        await asyncio.sleep(0)
-        main.broadcast_state(engine.get_state())
-        await asyncio.sleep(0)
-        engine.map.add_obstacle(0, 0)
-        main.broadcast_state(engine.get_state())
-        await asyncio.sleep(0)
+    main.broadcast_state(engine.get_state())
+    first_state = json.loads(queue.get_nowait())
+    main.broadcast_state(engine.get_state())
+    steady_state = json.loads(queue.get_nowait())
+    engine.map.add_obstacle(0, 0)
+    main.broadcast_state(engine.get_state())
+    changed_map_state = json.loads(queue.get_nowait())
 
-    asyncio.run(broadcast_updates())
+    assert "layout" in first_state
+    assert "layout" not in steady_state
+    assert "layout" in changed_map_state
 
-    states = [json.loads(payload) for payload in payloads]
-    assert len(states) == 3
-    assert "layout" in states[0]
-    assert "layout" not in states[1]
-    assert "layout" in states[2]
+    main._queue_latest_state(queue, "stale")
+    main._queue_latest_state(queue, "latest")
+    assert queue.qsize() == 1
+    assert queue.get_nowait() == "latest"

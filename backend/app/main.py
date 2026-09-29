@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from typing import List
+from typing import Dict, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -13,12 +13,37 @@ sim_engine = SimulationEngine()
 
 # Connected WebSocket clients
 active_websockets: List[WebSocket] = []
+websocket_state_queues: Dict[WebSocket, asyncio.Queue[str]] = {}
 last_obstacle_signature: tuple[tuple[int, int, str], ...] | None = None
 
 def _apply_network_fault_params(params: dict):
     packet_loss_pct = params.get("packet_loss_rate_pct", params.get("packet_loss_pct", 0.0))
     latency_ms = params.get("simulated_latency_ms", params.get("latency_ms", 0.0))
     sim_engine.set_network_faults(float(packet_loss_pct), float(latency_ms))
+
+def _queue_latest_state(queue: asyncio.Queue[str], payload: str):
+    if queue.full():
+        try:
+            queue.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+    queue.put_nowait(payload)
+
+async def _send_queued_states(websocket: WebSocket, queue: asyncio.Queue[str]):
+    try:
+        while True:
+            await websocket.send_text(await queue.get())
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        print(f"[WebSocket] State sender stopped: {error}")
+        if websocket in active_websockets:
+            active_websockets.remove(websocket)
+        websocket_state_queues.pop(websocket, None)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
 
 def broadcast_state(state: SimulationState):
     """Callback invoked by sim_engine on state change/tick to push to all WebSockets."""
@@ -31,11 +56,9 @@ def broadcast_state(state: SimulationState):
     last_obstacle_signature = obstacle_signature
     payload = state.model_dump_json(exclude=None if layout_changed else {"layout"})
     for ws in list(active_websockets):
-        try:
-            asyncio.create_task(ws.send_text(payload))
-        except Exception:
-            if ws in active_websockets:
-                active_websockets.remove(ws)
+        queue = websocket_state_queues.get(ws)
+        if queue is not None:
+            _queue_latest_state(queue, payload)
 
 sim_engine.register_listener(broadcast_state)
 
@@ -187,8 +210,12 @@ async def plan_path_endpoint(payload: dict):
 async def simulation_websocket(websocket: WebSocket):
     await websocket.accept()
     active_websockets.append(websocket)
+    send_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=1)
+    websocket_state_queues[websocket] = send_queue
+    sender_task = None
     # Send initial state immediately upon connection
     await websocket.send_text(sim_engine.get_state().model_dump_json())
+    sender_task = asyncio.create_task(_send_queued_states(websocket, send_queue))
 
     try:
         while True:
@@ -270,11 +297,19 @@ async def simulation_websocket(websocket: WebSocket):
             elif action == "reset_tasks":
                 sim_engine.reset_tasks()
     except WebSocketDisconnect:
-        if websocket in active_websockets:
-            active_websockets.remove(websocket)
+        pass
     except Exception as e:
+        print(f"[WebSocket] Command receiver stopped: {e}")
+    finally:
         if websocket in active_websockets:
             active_websockets.remove(websocket)
+        websocket_state_queues.pop(websocket, None)
+        if sender_task is not None:
+            sender_task.cancel()
+            try:
+                await sender_task
+            except asyncio.CancelledError:
+                pass
 
 if __name__ == "__main__":
     import uvicorn
