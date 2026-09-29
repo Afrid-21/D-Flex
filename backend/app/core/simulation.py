@@ -384,14 +384,22 @@ class SimulationEngine:
 
     async def _run_loop(self):
         """Async background task that ticks the simulation."""
+        loop = asyncio.get_running_loop()
+        next_tick_at = loop.time()
         while True:
             if self.status == SimulationStatus.RUNNING:
                 self._advance_tick()
                 self._notify_listeners()
 
-            # Calculate sleep interval adjusted for speed multiplier
-            sleep_time = (1.0 / self.tick_rate_hz) / max(0.1, self.speed_multiplier)
-            await asyncio.sleep(sleep_time)
+            # Schedule against a monotonic deadline so tick work does not add drift.
+            tick_interval = (1.0 / self.tick_rate_hz) / max(0.1, self.speed_multiplier)
+            next_tick_at += tick_interval
+            await asyncio.sleep(max(0.0, next_tick_at - loop.time()))
+
+            # Do not run catch-up ticks in a burst after an unusually slow tick.
+            now = loop.time()
+            if now - next_tick_at >= tick_interval:
+                next_tick_at = now
 
     async def shutdown(self):
         """Gracefully cancels the simulation task."""
