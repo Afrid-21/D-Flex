@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { SimulationState, LogEvent, EventSeverity } from '../types/warehouse';
 
-const API_BASE = 'http://127.0.0.1:8000';
-const WS_URL = 'ws://127.0.0.1:8000/ws/simulation';
+const API_BASE = (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
+const WS_BASE = API_BASE.replace(/^http/, 'ws');
+const WS_URL = `${WS_BASE}/ws/simulation`;
 const REST_URL = `${API_BASE}/api`;
 
 export function useSimulation() {
