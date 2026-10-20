@@ -18,7 +18,6 @@ export function useSimulation() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const prevStateRef = useRef<SimulationState | null>(null);
-  const initialResetRef = useRef<Promise<SimulationState | null> | null>(null);
 
   const addEvent = useCallback((severity: EventSeverity, category: string, message: string, details?: string) => {
     const now = new Date();
@@ -35,6 +34,16 @@ export function useSimulation() {
   }, []);
 
   const connect = useCallback(() => {
+    if (wsRef.current) {
+      if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
+        return;
+      }
+      try {
+        wsRef.current.close();
+      } catch {}
+      wsRef.current = null;
+    }
+
     try {
       const ws = new WebSocket(WS_URL);
       wsRef.current = ws;
@@ -144,7 +153,10 @@ export function useSimulation() {
 
       ws.onclose = () => {
         setIsConnected(false);
-        addEvent('warning', 'NETWORK', 'Connection to edge broker interrupted. Retrying...');
+        wsRef.current = null;
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
         reconnectTimeoutRef.current = window.setTimeout(() => {
           connect();
         }, 2000);
@@ -156,71 +168,45 @@ export function useSimulation() {
       };
     } catch (err) {
       setError('Failed to establish WebSocket connection');
+      reconnectTimeoutRef.current = window.setTimeout(() => {
+        connect();
+      }, 2500);
     }
   }, [addEvent]);
 
   useEffect(() => {
-    let cancelled = false;
+    // 1. Connect WebSocket immediately on mount
+    connect();
 
-    const initialize = async () => {
-      if (!initialResetRef.current) {
-        initialResetRef.current = fetch(`${REST_URL}/control`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'reset' }),
-        })
-          .then(async (response) => {
-            if (!response.ok) {
-              throw new Error(`Startup reset failed (${response.status})`);
-            }
+    // 2. Fast REST fetch for instant layout display
+    fetch(`${REST_URL}/state`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: SimulationState | null) => {
+        if (data && data.layout) {
+          setState((prev) => prev || data);
+          prevStateRef.current = prevStateRef.current || data;
+        }
+      })
+      .catch(() => {});
 
-            const result: { success: boolean; state?: SimulationState; error?: string } = await response.json();
-            if (!result.success || !result.state) {
-              throw new Error(result.error || 'Backend did not return the reset state');
-            }
-            return result.state;
-          })
-          .catch((err: unknown) => {
-            console.error('[Startup Reset Error]', err);
-            return null;
-          });
+    // 3. Keepalive timer to guarantee reconnection if socket closes
+    const keepaliveTimer = window.setInterval(() => {
+      if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
+        connect();
       }
-
-      const initialState = await initialResetRef.current;
-      if (cancelled) return;
-
-      if (initialState) {
-        prevStateRef.current = initialState;
-        setState(initialState);
-        setError(null);
-        addEvent('info', 'SYSTEM', 'Simulation reset to initial state on page load');
-      } else {
-        addEvent('warning', 'SYSTEM', 'Startup reset failed; loading the current simulation state');
-        fetch(`${REST_URL}/state`)
-          .then((response) => response.json())
-          .then((data: SimulationState) => {
-            if (cancelled || prevStateRef.current) return;
-            prevStateRef.current = data;
-            setState(data);
-          })
-          .catch(() => {});
-      }
-
-      connect();
-    };
-
-    void initialize();
+    }, 3500);
 
     return () => {
-      cancelled = true;
+      clearInterval(keepaliveTimer);
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
       if (wsRef.current) {
         wsRef.current.close();
+        wsRef.current = null;
       }
     };
-  }, [connect, addEvent]);
+  }, [connect]);
 
   const sendCommand = useCallback((action: string, params?: Record<string, unknown>) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {

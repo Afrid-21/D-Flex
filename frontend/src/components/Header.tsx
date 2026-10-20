@@ -61,9 +61,9 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-3">
           {/* Connection */}
           <div className="flex items-center gap-1.5 text-xs font-mono">
-            <span className={`h-2 w-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-sm' : 'bg-rose-500 animate-ping'}`} />
-            <span className={`text-[11px] font-semibold ${isConnected ? 'text-slate-700' : 'text-rose-600'}`}>
-              {isConnected ? 'SYSTEM ONLINE' : 'DISCONNECTED'}
+            <span className={`h-2 w-2 rounded-full ${isConnected ? 'bg-emerald-500 shadow-sm' : 'bg-amber-500 animate-ping'}`} />
+            <span className={`text-[11px] font-semibold ${isConnected ? 'text-slate-700' : 'text-amber-600'}`}>
+              {isConnected ? 'SYSTEM ONLINE' : 'CONNECTING...'}
             </span>
           </div>
 
