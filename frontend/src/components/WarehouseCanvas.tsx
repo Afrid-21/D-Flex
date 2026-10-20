@@ -5,6 +5,8 @@ import { AMR } from './AMR';
 interface WarehouseCanvasProps {
   layout: WarehouseLayout | null;
   robots: RobotInfo[];
+  tick: number;
+  tickIntervalMs: number;
   conflicts?: ConflictReport;
   reservations?: ReservationSummary;
   selectedRobotId: string | null;
@@ -23,6 +25,8 @@ interface WarehouseCanvasProps {
 export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
   layout,
   robots,
+  tick,
+  tickIntervalMs,
   conflicts,
   reservations,
   selectedRobotId,
@@ -378,6 +382,12 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
     robots.forEach((robot) => {
       const isSelected = robot.robot_id === selectedRobotId;
       const isHovered = hoveredRobot?.robot_id === robot.robot_id;
+      let activePath = robot.current_path && robot.current_path.length > 0 ? [...robot.current_path] : [];
+      if (activePath.length > 0) {
+        if (activePath[0][0] !== robot.position[0] || activePath[0][1] !== robot.position[1]) {
+          activePath = [robot.position, ...activePath];
+        }
+      }
 
       ctx.save();
 
@@ -436,11 +446,11 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
           ctx.setLineDash([5, 4]);
 
           ctx.beginPath();
-          const startX = robot.position[0] * cellW + cellW / 2;
-          const startY = robot.position[1] * cellH + cellH / 2;
+          const startX = activePath[0][0] * cellW + cellW / 2;
+          const startY = activePath[0][1] * cellH + cellH / 2;
           ctx.moveTo(startX, startY);
 
-          for (const pt of robot.current_path) {
+          for (const pt of activePath.slice(1)) {
             const px = pt[0] * cellW + cellW / 2;
             const py = pt[1] * cellH + cellH / 2;
             ctx.lineTo(px, py);
@@ -449,7 +459,7 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
           ctx.setLineDash([]);
 
           // Waypoint node dots
-          for (const pt of robot.current_path) {
+          for (const pt of activePath) {
             const px = pt[0] * cellW + cellW / 2;
             const py = pt[1] * cellH + cellH / 2;
             ctx.fillStyle = robot.color_accent;
@@ -464,11 +474,11 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
           ctx.setLineDash([4, 3]);
 
           ctx.beginPath();
-          const startX = robot.position[0] * cellW + cellW / 2;
-          const startY = robot.position[1] * cellH + cellH / 2;
+          const startX = activePath[0][0] * cellW + cellW / 2;
+          const startY = activePath[0][1] * cellH + cellH / 2;
           ctx.moveTo(startX, startY);
 
-          for (const pt of robot.current_path) {
+          for (const pt of activePath.slice(1)) {
             const px = pt[0] * cellW + cellW / 2;
             const py = pt[1] * cellH + cellH / 2;
             ctx.lineTo(px, py);
@@ -476,7 +486,7 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
           ctx.stroke();
           ctx.setLineDash([]);
 
-          for (const pt of robot.current_path) {
+          for (const pt of activePath) {
             const px = pt[0] * cellW + cellW / 2;
             const py = pt[1] * cellH + cellH / 2;
             ctx.fillStyle = robot.color_accent;
@@ -650,6 +660,7 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
     showLabels,
     zoomLevel,
     panOffset,
+    tick,
   ]);
 
   useEffect(() => {
@@ -805,20 +816,21 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
       onClick={handleClick}
       className="relative w-full flex justify-center items-center overflow-hidden rounded-xl border border-slate-300/80 bg-slate-200/80 p-1.5 shadow-sm"
     >
-      {/* 1. Underlying Warehouse Canvas (Floor, Racks, Stations, Obstacles, Path Traces, Conflict Zones) */}
-      <canvas
-        ref={canvasRef}
-        style={{ width: `${canvasDim.width}px`, height: `${canvasDim.height}px` }}
-        className="cursor-crosshair block rounded-lg shadow-inner bg-slate-200"
-      />
+      <div className="relative" style={{ width: `${canvasDim.width}px`, height: `${canvasDim.height}px` }}>
+        {/* 1. Underlying Warehouse Canvas (Floor, Racks, Stations, Obstacles, Path Traces, Conflict Zones) */}
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 cursor-crosshair block rounded-lg shadow-inner bg-slate-200"
+          style={{ width: `${canvasDim.width}px`, height: `${canvasDim.height}px` }}
+        />
 
-      {/* 2. Vector AMR Layer + Vector Conflict Badges */}
-      {layout && (
-        <svg
-          className="absolute pointer-events-none"
-          style={{ width: `${canvasDim.width}px`, height: `${canvasDim.height}px`, overflow: 'visible' }}
-          viewBox={`0 0 ${canvasDim.width} ${canvasDim.height}`}
-        >
+        {/* 2. Vector AMR Layer + Vector Conflict Badges */}
+        {layout && (
+          <svg
+            className="absolute inset-0 pointer-events-none"
+            style={{ width: '100%', height: '100%', overflow: 'visible' }}
+            viewBox={`0 0 ${canvasDim.width} ${canvasDim.height}`}
+          >
           <g
             style={{
               transform: `translate(${canvasDim.width / 2 + panOffset.x}px, ${canvasDim.height / 2 + panOffset.y}px) scale(${zoomLevel}) translate(${-canvasDim.width / 2}px, ${-canvasDim.height / 2}px)`,
@@ -830,6 +842,8 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
               <AMR
                 key={robot.robot_id}
                 robot={robot}
+                tick={tick}
+                tickIntervalMs={tickIntervalMs}
                 cellW={cellW}
                 cellH={cellH}
                 selected={robot.robot_id === selectedRobotId}
@@ -965,6 +979,7 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
           </g>
         </svg>
       )}
+      </div>
 
       {/* 3. Industrial HUD Tooltip */}
       {hoveredCell && mouseScreenPos && (

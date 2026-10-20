@@ -18,6 +18,7 @@ export function useSimulation() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const prevStateRef = useRef<SimulationState | null>(null);
+  const initialResetRef = useRef<Promise<SimulationState | null> | null>(null);
 
   const addEvent = useCallback((severity: EventSeverity, category: string, message: string, details?: string) => {
     const now = new Date();
@@ -159,17 +160,59 @@ export function useSimulation() {
   }, [addEvent]);
 
   useEffect(() => {
-    connect();
+    let cancelled = false;
 
-    fetch(`${REST_URL}/state`)
-      .then((res) => res.json())
-      .then((data: SimulationState) => {
-        setState((prev) => prev || data);
-        prevStateRef.current = data;
-      })
-      .catch(() => {});
+    const initialize = async () => {
+      if (!initialResetRef.current) {
+        initialResetRef.current = fetch(`${REST_URL}/control`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'reset' }),
+        })
+          .then(async (response) => {
+            if (!response.ok) {
+              throw new Error(`Startup reset failed (${response.status})`);
+            }
+
+            const result: { success: boolean; state?: SimulationState; error?: string } = await response.json();
+            if (!result.success || !result.state) {
+              throw new Error(result.error || 'Backend did not return the reset state');
+            }
+            return result.state;
+          })
+          .catch((err: unknown) => {
+            console.error('[Startup Reset Error]', err);
+            return null;
+          });
+      }
+
+      const initialState = await initialResetRef.current;
+      if (cancelled) return;
+
+      if (initialState) {
+        prevStateRef.current = initialState;
+        setState(initialState);
+        setError(null);
+        addEvent('info', 'SYSTEM', 'Simulation reset to initial state on page load');
+      } else {
+        addEvent('warning', 'SYSTEM', 'Startup reset failed; loading the current simulation state');
+        fetch(`${REST_URL}/state`)
+          .then((response) => response.json())
+          .then((data: SimulationState) => {
+            if (cancelled || prevStateRef.current) return;
+            prevStateRef.current = data;
+            setState(data);
+          })
+          .catch(() => {});
+      }
+
+      connect();
+    };
+
+    void initialize();
 
     return () => {
+      cancelled = true;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
@@ -177,7 +220,7 @@ export function useSimulation() {
         wsRef.current.close();
       }
     };
-  }, [connect]);
+  }, [connect, addEvent]);
 
   const sendCommand = useCallback((action: string, params?: Record<string, unknown>) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {

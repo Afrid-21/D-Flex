@@ -381,6 +381,17 @@ class SimulationEngine:
         self.comparator.update_tick(len(self.fleet.robots), self.tick_count)
         self.demo_orchestrator.step_demo(self.tick_count)
 
+        # Auto-reset if all robots have reached their destinations (condition done)
+        if self.fleet.robots:
+            all_done = True
+            for robot in self.fleet.robots.values():
+                if robot.status not in (RobotStatus.ARRIVED, RobotStatus.IDLE, RobotStatus.OFFLINE):
+                    all_done = False
+                    break
+            
+            if all_done:
+                self.reset()
+
 
     async def _run_loop(self):
         """Async background task that ticks the simulation."""

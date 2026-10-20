@@ -217,6 +217,8 @@ export const App: React.FC = () => {
               <WarehouseCanvas
                 layout={state?.layout || null}
                 robots={robots}
+                tick={state?.tick || 0}
+                tickIntervalMs={1000 / Math.max(0.1, (state?.tick_rate_hz || 10) * (state?.speed_multiplier || 1))}
                 conflicts={conflicts}
                 reservations={reservations}
                 selectedRobotId={selectedRobotId}

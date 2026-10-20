@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { RobotInfo } from '../types/warehouse';
 
 interface AMRProps {
   robot: RobotInfo;
+  tick: number;
+  tickIntervalMs: number;
   cellW: number;
   cellH: number;
   selected: boolean;
@@ -13,6 +15,8 @@ interface AMRProps {
 
 export const AMR: React.FC<AMRProps> = ({
   robot,
+  tick,
+  tickIntervalMs,
   cellW,
   cellH,
   selected,
@@ -20,9 +24,127 @@ export const AMR: React.FC<AMRProps> = ({
   onMouseEnter,
   onMouseLeave,
 }) => {
+  const [displayPosition, setDisplayPosition] = useState<[number, number]>(robot.position);
+  const displayPositionRef = useRef<[number, number]>(robot.position);
+  const previousPositionRef = useRef<[number, number]>(robot.position);
+  const previousPathRef = useRef(robot.current_path);
+  const previousTickRef = useRef(tick);
+  const animationFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const previousPosition = previousPositionRef.current;
+    const currentPosition = robot.position;
+    const positionChanged = currentPosition[0] !== previousPosition[0]
+      || currentPosition[1] !== previousPosition[1];
+
+    if (positionChanged) {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+
+      const setPosition = (position: [number, number]) => {
+        displayPositionRef.current = position;
+        setDisplayPosition(position);
+      };
+
+      if (tick < previousTickRef.current) {
+        setPosition(currentPosition);
+      } else {
+        const prevPath = previousPathRef.current || [];
+        const startIndex = prevPath.findIndex(
+          ([x, y]) => x === previousPosition[0] && y === previousPosition[1]
+        );
+        const targetIndex = startIndex >= 0
+          ? prevPath.findIndex(
+              ([x, y], index) => index > startIndex && x === currentPosition[0] && y === currentPosition[1]
+            )
+          : -1;
+
+        const pathSegments: [number, number][] = (startIndex >= 0 && targetIndex > startIndex)
+          ? prevPath.slice(startIndex, targetIndex + 1)
+          : (
+              Math.abs(currentPosition[0] - previousPosition[0])
+                + Math.abs(currentPosition[1] - previousPosition[1]) === 1
+                ? [previousPosition, currentPosition]
+                : [currentPosition]
+            );
+
+        const rawWaypoints: [number, number][] = [
+          displayPositionRef.current,
+          previousPosition,
+          ...pathSegments,
+        ];
+
+        const waypoints = rawWaypoints.filter((point, index, points) => (
+          index === 0 ||
+          Math.abs(point[0] - points[index - 1][0]) > 0.001 ||
+          Math.abs(point[1] - points[index - 1][1]) > 0.001
+        ));
+
+        const segmentLengths = waypoints.slice(1).map((point, index) => (
+          Math.hypot(point[0] - waypoints[index][0], point[1] - waypoints[index][1])
+        ));
+        const totalDistance = segmentLengths.reduce((sum, length) => sum + length, 0);
+
+        if (totalDistance < 0.001) {
+          setPosition(currentPosition);
+        } else {
+          const durationMs = Math.min(1000, Math.max(50, totalDistance * tickIntervalMs * 0.95));
+          let startedAt: number | null = null;
+
+          const animate = (timestamp: number) => {
+            if (startedAt === null) startedAt = timestamp;
+            const progress = Math.min(1, (timestamp - startedAt) / durationMs);
+            let remainingDistance = totalDistance * progress;
+            let nextPosition = waypoints[waypoints.length - 1];
+
+            for (let index = 0; index < segmentLengths.length; index += 1) {
+              const segmentLength = segmentLengths[index];
+              if (remainingDistance <= segmentLength) {
+                const segmentProgress = segmentLength > 0 ? remainingDistance / segmentLength : 1;
+                const from = waypoints[index];
+                const to = waypoints[index + 1];
+                nextPosition = [
+                  from[0] + (to[0] - from[0]) * segmentProgress,
+                  from[1] + (to[1] - from[1]) * segmentProgress,
+                ];
+                break;
+              }
+              remainingDistance -= segmentLength;
+            }
+
+            const framePosition: [number, number] = [nextPosition[0], nextPosition[1]];
+            displayPositionRef.current = framePosition;
+            setDisplayPosition(framePosition);
+
+            if (progress < 1) {
+              animationFrameRef.current = requestAnimationFrame(animate);
+            } else {
+              animationFrameRef.current = null;
+              setPosition(currentPosition);
+            }
+          };
+
+          animationFrameRef.current = requestAnimationFrame(animate);
+        }
+      }
+    }
+
+    previousPositionRef.current = currentPosition;
+    previousPathRef.current = robot.current_path;
+    previousTickRef.current = tick;
+  }, [robot, tick, tickIntervalMs]);
+
+  useEffect(() => () => {
+    if (animationFrameRef.current !== null) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+  }, []);
+
   // Center coordinates on the grid
-  const cx = robot.position[0] * cellW + cellW / 2;
-  const cy = robot.position[1] * cellH + cellH / 2;
+  const cx = displayPosition[0] * cellW + cellW / 2;
+  const cy = displayPosition[1] * cellH + cellH / 2;
 
   // AMR dimensions (76% width, 58% height of grid cell)
   const bodyW = Math.max(22, cellW * 0.76);
@@ -53,7 +175,6 @@ export const AMR: React.FC<AMRProps> = ({
         transform: `translate(${cx}px, ${cy}px)`,
         transformBox: 'view-box',
         transformOrigin: '0 0',
-        transition: 'transform 100ms linear',
       }}
       onClick={onClick}
       onMouseEnter={onMouseEnter}
