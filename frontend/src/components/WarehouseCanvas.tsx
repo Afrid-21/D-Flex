@@ -382,10 +382,18 @@ export const WarehouseCanvas: React.FC<WarehouseCanvasProps> = ({
     robots.forEach((robot) => {
       const isSelected = robot.robot_id === selectedRobotId;
       const isHovered = hoveredRobot?.robot_id === robot.robot_id;
-      let activePath = robot.current_path && robot.current_path.length > 0 ? [...robot.current_path] : [];
-      if (activePath.length > 0) {
-        if (activePath[0][0] !== robot.position[0] || activePath[0][1] !== robot.position[1]) {
-          activePath = [robot.position, ...activePath];
+
+      // Build the active path: always starts from robot.position so the
+      // dotted path anchors to the exact cell the SVG robot icon is on.
+      let activePath: [number, number][] = [];
+      if (robot.current_path && robot.current_path.length > 0) {
+        // current_path from backend = remaining waypoints starting at or near robot.position
+        const pathStart = robot.current_path[0];
+        if (pathStart[0] === robot.position[0] && pathStart[1] === robot.position[1]) {
+          activePath = [...robot.current_path];
+        } else {
+          // Path has advanced; prepend current position so line anchors to robot
+          activePath = [robot.position, ...robot.current_path];
         }
       }
 
