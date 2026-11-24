@@ -49,6 +49,18 @@ def test_fleet_summary_is_reported():
     assert state.fleet_summary.health_status in {"HEALTHY", "DEGRADED", "WARNING"}
 
 
+def test_health_check_reports_live_fleet_state():
+    from app import main
+
+    result = asyncio.run(main.health_check())
+
+    assert result["status"] == "ok"
+    assert result["simulation_status"] in {"idle", "running", "paused"}
+    assert isinstance(result["tick"], int)
+    assert result["fleet"]["total_robots"] >= 1
+    assert result["fleet"]["health_status"] in {"HEALTHY", "DEGRADED", "WARNING"}
+
+
 def test_websocket_broadcast_only_includes_layout_when_it_changes(monkeypatch):
     from app import main
 
