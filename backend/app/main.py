@@ -91,7 +91,13 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "phase": "Phase 1 - Basic Warehouse Simulation"}
+    state = sim_engine.get_state()
+    return {
+        "status": "ok",
+        "simulation_status": state.status.value,
+        "tick": state.tick,
+        "fleet": state.fleet_summary.model_dump(),
+    }
 
 @app.get("/api/state", response_model=SimulationState)
 async def get_simulation_state():
